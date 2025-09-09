@@ -9,7 +9,7 @@ app = Flask(__name__)
 # Set the URLs and file paths
 SERVICE2_URL = "http://service2:5000/status"
 STORAGE_URL = "http://storage:6000/log"
-VSTORAGE_FILE = "/app/vstorage/log.txt"
+VSTORAGE_FILE = "/app/vstorage.txt"
 
 # Function to get the status record
 def get_status_record(service_name: str) -> str:
@@ -29,8 +29,6 @@ def get_status_record(service_name: str) -> str:
 
 # Function to write to vStorage
 def write_to_vstorage(record: str):
-    # Create the directory if it doesn't exist
-    os.makedirs(os.path.dirname(VSTORAGE_FILE), exist_ok=True)
     # Append the record to the file
     with open(VSTORAGE_FILE, "a") as f:
         f.write(record + "\n")
@@ -59,7 +57,7 @@ def status():
         app.logger.error(f"Failed to reach Service2: {e}")
 
     # Combine the records and return
-    result = record1 + "\n" + record2 if record2 else record1
+    result = record1 + "\n" + record2 + "\n" if record2 else record1
     return Response(result, mimetype="text/plain")
 
 @app.route("/log", methods=["GET"])

@@ -1,27 +1,64 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+
+	_ "github.com/lib/pq"
 )
 
-// Set the log file path
-const logFile = "/data/log.txt"
-const port = "6000"
+// Set the port and database connection string
+const (
+	port    = "6000"
+	connStr = "postgres://user:pass@postgres:5432/logs?sslmode=disable"
+)
 
-// Function to append a log record to the file
-func appendLog(record string) error {
-	// Open file in append mode, create if not exists
-	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+var db *sql.DB
+
+// Function to initialize the database
+func initDB() error {
+	var err error
+	// Connect to PostgreSQL
+	db, err = sql.Open("postgres", connStr)
 	if err != nil {
 		return err
 	}
-	// Write the record and close the file
-	defer f.Close()
-	_, err = f.WriteString(record + "\n")
+	// Create table if it doesn't exist
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS logs (
+		id SERIAL PRIMARY KEY,
+		record TEXT NOT NULL
+	)`)
 	return err
+}
+
+// Function to append a log record to the database
+func appendLog(record string) error {
+	_, err := db.Exec("INSERT INTO logs (record) VALUES ($1)", record)
+	return err
+}
+
+// Function to retrieve all log records from the database
+func getAllLogs() (string, error) {
+	// Query all records ordered by ID
+	rows, err := db.Query("SELECT record FROM logs ORDER BY id ASC")
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var result string
+	// Iterate through the rows and concatenate records
+	for rows.Next() {
+		var record string
+		if err := rows.Scan(&record); err != nil {
+			return "", err
+		}
+		result += record + "\n"
+	}
+	return result, nil
 }
 
 // POST /log
@@ -51,36 +88,33 @@ func postLog(w http.ResponseWriter, r *http.Request) {
 
 // GET /log
 func getLog(w http.ResponseWriter, r *http.Request) {
-	// Read the entire log file
-	data, err := os.ReadFile(logFile)
+	// Retrieve all logs from the database
+	data, err := getAllLogs()
 	if err != nil {
-		// If file doesn’t exist yet, return empty
-		if os.IsNotExist(err) {
-			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte(""))
-			return
-		}
-		http.Error(w, "failed to read log", http.StatusInternalServerError)
+		http.Error(w, "failed to read logs", http.StatusInternalServerError)
 		return
 	}
-
-	// Return the log content
+	// Respond with the log content
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write(data)
+	w.Write([]byte(data))
 }
 
-// Main function to start the HTTP server
+// Main function to initialize the database and start the HTTP server
 func main() {
+	// Initialize the database
+	if err := initDB(); err != nil {
+		fmt.Println("Failed to init DB:", err)
+		os.Exit(1)
+	}
+
 	// Define HTTP handlers
 	http.HandleFunc("/log", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			// Handle POST requests
+		switch r.Method {
+		case http.MethodPost:
 			postLog(w, r)
-		} else if r.Method == http.MethodGet {
-			// Handle GET requests
+		case http.MethodGet:
 			getLog(w, r)
-		} else {
-			// Respond with 405 Method Not Allowed for other methods
+		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})

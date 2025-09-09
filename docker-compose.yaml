@@ -5,7 +5,7 @@ services:
     ports:
       - "8199:5000"
     volumes:
-      - ./vstorage:/app/vstorage
+      - ./vstorage:/app/vstorage.txt
     depends_on:
       - service2
       - storage
@@ -16,20 +16,36 @@ services:
     build: ./service2
     container_name: service2
     volumes:
-      - ./vstorage:/app/vstorage
+      - ./vstorage:/app/vstorage.txt
     networks:
       - micro_network
 
   storage:
     build: ./storage
     container_name: storage
+    restart: on-failure:5
+    depends_on:
+      postgres:
+        condition: service_started
+    networks:
+      - micro_network
+
+  postgres:
+    image: postgres:17.6-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: logs
+    expose: 
+      - "5432"
     volumes:
-      - storage_data:/data
+      - pg_data:/var/lib/postgresql/data
     networks:
       - micro_network
 
 volumes:
-  storage_data:
+  pg_data:
 
 networks:
   micro_network:

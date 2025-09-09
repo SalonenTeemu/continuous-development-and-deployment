@@ -11,7 +11,7 @@ app.use(express.text());
 // Set the port, URL and file path
 const PORT = 5000;
 const STORAGE_URL = "http://storage:6000/log";
-const VSTORAGE_FILE = "/app/vstorage/log.txt";
+const VSTORAGE_FILE = "/app/vstorage.txt";
 
 // Function to get status record
 async function getStatusRecord(serviceName) {
@@ -36,9 +36,6 @@ async function getStatusRecord(serviceName) {
 
 // Function to write record to vStorage
 function writeToVstorage(record) {
-  // Create the directory if it doesn't exist
-  fs.mkdirSync(path.dirname(VSTORAGE_FILE), { recursive: true });
-  // Append the record to the file
   fs.appendFileSync(VSTORAGE_FILE, record + "\n");
 }
 
@@ -72,5 +69,5 @@ app.get("/status", async (req, res) => {
 
 // Start the server
 app.listen(PORT, () => {
-  console.log(`Service2 listening to port ${PORT}`);
+  console.log(`Service2 running on port ${PORT}`);
 });
