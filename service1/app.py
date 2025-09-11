@@ -2,7 +2,6 @@ from flask import Flask, Response
 import psutil
 import requests
 import datetime
-import os
 
 app = Flask(__name__)
 

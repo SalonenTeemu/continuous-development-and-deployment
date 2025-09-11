@@ -1,0 +1,23 @@
+LLM tools were used when doing this exercise.
+
+The used LLM tool
+- OpenAI ChatGPT
+
+Motivation/reason to use LLM
+- To speed up setup, solve issues, and help with documentation.
+- For example, to quickly create Service1 (Python) and Service2 (Node.js), which I already knew I could do but could generate faster with ChatGPT.
+
+How and why LLM helped
+- Helped write and refine the code for each service. It was especially useful for helping with the Storage service implemented with Go language, which I had not used before.
+- Helped with creating a multi-stage Dockerfile for the Storage service.
+- Helped debug errors.
+- Helped improve the wording of the report.
+
+What kind of mistakes LLM did
+- Gave incorrect Dockerfile syntax and suggested outdated images, which I had to fix manually.
+- Sometimes hallucinated by suggesting implementations unrelated to the exercise.
+
+What were things that LLM was not able to provide
+- Did not fully understand the whole system context when I asked for help with specific issues, which sometimes led to incorrect answers.
+
+I allow course staff to use this report in grading and use of it (after anonymization) for teaching development and research purposes.

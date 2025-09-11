@@ -13,6 +13,5 @@ WORKDIR /app
 
 COPY --from=builder /app/storage .
 
-# Run the application on port 6000
-EXPOSE 6000
+# Run the application
 CMD ["./storage"]
