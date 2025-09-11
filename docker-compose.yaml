@@ -23,7 +23,7 @@ services:
   storage:
     build: ./storage
     container_name: storage
-    restart: on-failure:5
+    restart: always
     depends_on:
       postgres:
         condition: service_started
