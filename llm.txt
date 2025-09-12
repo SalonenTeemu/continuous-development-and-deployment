@@ -5,7 +5,7 @@ The used LLM tool
 
 Motivation/reason to use LLM
 - To speed up setup, solve issues, and help with documentation.
-- For example, to quickly create Service1 (Python) and Service2 (Node.js), which I already knew I could do but could generate faster with ChatGPT.
+- For example, to quickly create Service1 (Python) and Service2 (Node.js), which I already knew how to do but could generate faster with ChatGPT.
 
 How and why LLM helped
 - Helped write and refine the code for each service. It was especially useful for helping with the Storage service implemented with Go language, which I had not used before.
