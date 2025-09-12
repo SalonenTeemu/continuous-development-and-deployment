@@ -1,0 +1,13 @@
+teemu@ubuntu:~/devops/exercise1$ docker container ls
+CONTAINER ID   IMAGE                                            COMMAND                  CREATED         STATUS         PORTS                                         NAMES
+56bd6c155cf1   continuous-development-and-deployment_service1   "python app.py"          2 minutes ago   Up 2 minutes   0.0.0.0:8199->5000/tcp, [::]:8199->5000/tcp   service1
+55cd6d5246d8   continuous-development-and-deployment_storage    "./storage"              2 minutes ago   Up 2 minutes                                                 storage
+05372b902d2c   continuous-development-and-deployment_service2   "docker-entrypoint.s…"   2 minutes ago   Up 2 minutes                                                 service2
+7e49becdc1b5   postgres:17.6-alpine                             "docker-entrypoint.s…"   2 minutes ago   Up 2 minutes   5432/tcp                                      postgres
+
+teemu@ubuntu:~/devops/exercise1$ docker network ls
+NETWORK ID     NAME                                                  DRIVER    SCOPE
+ea984c81c06b   bridge                                                bridge    local
+e2f02c7758dd   continuous-development-and-deployment_micro_network   bridge    local
+33029769ac4b   host                                                  host      local
+ede658e8be96   none                                                  null      local

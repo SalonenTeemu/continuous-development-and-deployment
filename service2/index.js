@@ -1,7 +1,6 @@
 import express from "express";
 import si from "systeminformation";
 import fs from "fs";
-import path from "path";
 import fetch from "node-fetch";
 
 // Initialize Express app and use text middleware
@@ -15,7 +14,7 @@ const VSTORAGE_FILE = "/app/vstorage.txt";
 
 // Function to get status record
 async function getStatusRecord(serviceName) {
-  // Timestamp in ISO 8601 format
+  // Timestamp in ISO 8601 UTC
   const timestamp = new Date().toISOString().replace(/\.\d+Z$/, "Z");
 
   // System uptime (hours)

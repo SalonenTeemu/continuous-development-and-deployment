@@ -5,7 +5,8 @@ import datetime
 
 app = Flask(__name__)
 
-# Set the URLs and file paths
+# Set the port, URLs and file path
+PORT = 5000
 SERVICE2_URL = "http://service2:5000/status"
 STORAGE_URL = "http://storage:6000/log"
 VSTORAGE_FILE = "/app/vstorage.txt"
@@ -49,7 +50,7 @@ def status():
     # Forward the request to Service2
     record2 = ""
     try:
-        r = requests.get(SERVICE2_URL, timeout=3)
+        r = requests.get(SERVICE2_URL, timeout=5)
         if r.status_code == 200:
             record2 = r.text.strip()
     except Exception as e:
@@ -63,11 +64,11 @@ def status():
 def get_log():
     # Forward the request to Storage to get the log
     try:
-        r = requests.get(STORAGE_URL, timeout=3)
+        r = requests.get(STORAGE_URL, timeout=5)
         return Response(r.text, mimetype="text/plain")
     except Exception as e:
         app.logger.error(f"Failed to get logs from storage: {e}")
         return Response("Error retrieving logs", status=500)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=PORT)

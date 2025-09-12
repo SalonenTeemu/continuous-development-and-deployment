@@ -87,7 +87,7 @@ func postLog(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /log
-func getLog(w http.ResponseWriter, r *http.Request) {
+func getLog(w http.ResponseWriter, _ *http.Request) {
 	// Retrieve all logs from the database
 	data, err := getAllLogs()
 	if err != nil {
