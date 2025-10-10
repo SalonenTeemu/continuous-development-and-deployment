@@ -1,0 +1,1 @@
+docker pull harbor.treok.eu/devops_exercise2_ts/exercise2@sha256:c52dddb569e04d064de4c7b218b67564eb22ca625adf8b250da9c1fbac4172dc

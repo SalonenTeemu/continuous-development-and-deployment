@@ -1,0 +1,3 @@
+Running smoketest...
+Response: 2
+Smoketest PASSED

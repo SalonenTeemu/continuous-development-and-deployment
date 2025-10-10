@@ -1,0 +1,157 @@
+# Define stages of the pipeline
+stages:
+  - build
+  - test
+  - package
+  - smoketest
+  - scan
+  - deliver
+
+variables:
+  APP_NAME: exercise2 # Name of the application
+  PORT: 8199 # Port where the app listens
+  DOCKER_IMAGE: $APP_NAME:1.0 # Docker image name
+  HARBOR_IMAGE: harbor.treok.eu/devops_exercise2_ts/$APP_NAME:1.0 # Harbor image path
+  DOCKER_HOST: "unix:///runner/services/docker/docker.sock" # Use Docker-in-Docker socket
+
+services:
+  - name: docker:dind
+    alias: docker-host
+
+# 1. Build Stage
+build:
+  stage: build
+  image: alpine/java:21-jdk # Use JDK image here for compiling
+  script:
+    - echo "Compiling Java app..."
+    - javac src/Main.java -d build/
+  artifacts:
+    paths:
+      - build/
+    expire_in: 1 hour
+
+# 2. Test Stage
+test:
+  stage: test
+  image: alpine/java:21-jre
+  dependencies:
+    - build
+  before_script:
+    - apk add --no-cache nodejs npm curl # Install Node.js and curl
+    - cd test && npm install && cd .. # Install test dependencies
+  script:
+    - java -cp build Main & # Start the Java server in the background
+    - sleep 5 # Wait for server to start
+    - node test/server.test.js # Run tests
+  artifacts:
+    paths:
+      - test-report.txt
+
+# 3. Package Stage
+package:
+  stage: package
+  image: docker:24
+  dependencies:
+    - build
+  script:
+    - echo "Building Docker image..."
+    - docker build -t $DOCKER_IMAGE . # Build Docker image
+    - echo "Saving Docker image as artifact..."
+    - docker save $DOCKER_IMAGE | gzip > $APP_NAME.tar.gz # Gzip and save the image
+  artifacts:
+    paths:
+      - $APP_NAME.tar.gz
+    expire_in: 1 hour
+
+# 4. Smoketest Stage
+smoketest:
+  stage: smoketest
+  image: docker:24
+  dependencies:
+    - package
+  script: |
+    echo "Unpacking and loading Docker image..."
+    gunzip -c $APP_NAME.tar.gz | docker load
+
+    echo "Starting the app container..."
+    docker run -d --name $APP_NAME -p $PORT:$PORT $DOCKER_IMAGE
+
+    echo "Waiting for container to be running..."
+    until [ "$(docker inspect -f '{{.State.Running}}' $APP_NAME)" = "true" ]; do
+      echo "Container not running yet..."
+      sleep 1
+    done
+
+    echo "Container started."
+
+    echo "Waiting for service to respond..."
+    for i in $(seq 1 10); do
+      if docker exec $APP_NAME curl -sf http://localhost:$PORT/health > /dev/null; then
+        echo "App is healthy!"
+        break
+      fi
+      echo "Retrying in 2s..."
+      docker logs --tail 5 $APP_NAME
+      sleep 2
+    done
+
+    echo "Running smoketest..." > smoketest-report.txt
+    RESPONSE=$(docker exec $APP_NAME curl -s -X POST http://localhost:$PORT \
+      -H "Content-Type: application/json" \
+      -d '{"numbers":[1,2,3,4]}')
+    echo "Response: $RESPONSE" >> smoketest-report.txt
+
+    if [ "$RESPONSE" = "2" ]; then
+      echo "Smoketest PASSED" >> smoketest-report.txt
+    else
+      echo "Smoketest FAILED" >> smoketest-report.txt
+      docker logs $APP_NAME
+      exit 1
+    fi
+
+    echo "Stopping and removing app container..."
+    docker stop $APP_NAME
+    docker rm $APP_NAME
+  artifacts:
+    paths:
+      - smoketest-report.txt
+
+# 5. Scan Stage
+scan:
+  stage: scan
+  image: docker:24
+  dependencies:
+    - package
+  before_script:
+    - echo "Installing Trivy..."
+    - apk add --no-cache curl # Install curl
+    - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.67.0 # Install Trivy
+  script:
+    - echo "Unpacking Docker image for scanning..."
+    - gunzip -c $APP_NAME.tar.gz | docker load # Unpack and load the Docker image
+    - echo "Scanning Docker image for vulnerabilities..."
+    - trivy image --exit-code 0 --severity HIGH,CRITICAL --format json -o trivy-report.json $DOCKER_IMAGE # Scan image with Trivy and output JSON report
+  artifacts:
+    paths:
+      - trivy-report.json
+    when: always
+
+# 6. Deliver Stage
+deliver:
+  stage: deliver
+  image: docker:24
+  dependencies:
+    - package
+  before_script:
+    - echo "Logging in to Harbor..."
+    - docker login harbor.treok.eu -u Teemu -p $HARBOR_PASSWORD # Login to Harbor
+  script:
+    - echo "Unpacking Docker image..."
+    - gunzip -c $APP_NAME.tar.gz | docker load # Unpack and load the Docker image
+    - echo "Tagging and pushing to Harbor..."
+    - docker tag $DOCKER_IMAGE $HARBOR_IMAGE # Tag the image for Harbor
+    - docker push $HARBOR_IMAGE # Push the image to Harbor
+  after_script:
+    - docker logout harbor.treok.eu # Logout from Harbor
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "deliver"' # Only run on 'deliver' branch

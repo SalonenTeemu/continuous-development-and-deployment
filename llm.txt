@@ -1,0 +1,22 @@
+LLM tools were used when doing this exercise.
+
+The used LLM tool
+- OpenAI ChatGPT
+
+Motivation/reason to use LLM
+- To speed up setup, troubleshoot issues, and help with documentation.
+- For example, generating the simple Java application quickly, which I already knew how to do, but ChatGPT helped produce it faster.
+
+How and why LLM helped
+- Assisted in writing and refining the Java application code to keep it simple and with minimal dependencies.
+- Helped debug errors faced in the GitLab CI/CD pipeline.
+- Assisted in improving the wording of the report.
+
+What kind of mistakes LLM did
+- Suggested outdated Docker images and GitLab CI syntax.
+- Occasionally hallucinated, suggesting implementations unrelated to the exercise.
+
+What were things that LLM was not able to provide
+- Did not fully understand the whole pipeline context when I asked for help with specific issues, which sometimes led to incorrect or irrelevant answers.
+
+I allow course staff to use this report in grading and use of it (after anonymization) for teaching development and research purposes.
