@@ -130,11 +130,12 @@ scan:
     - echo "Unpacking Docker image for scanning..."
     - gunzip -c $APP_NAME.tar.gz | docker load # Unpack and load the Docker image
     - echo "Scanning Docker image for vulnerabilities..."
-    - trivy image --exit-code 0 --severity HIGH,CRITICAL --format json -o trivy-report.json $DOCKER_IMAGE # Scan image with Trivy and output JSON report
+    - trivy image --exit-code 1 --severity HIGH,CRITICAL --format json -o trivy-report.json $DOCKER_IMAGE # Scan image with Trivy and output JSON report
   artifacts:
     paths:
       - trivy-report.json
     when: always
+  allow_failure: true # Allow this job to fail without failing the pipeline in case of vulnerabilities
 
 # 6. Deliver Stage
 deliver:
