@@ -1,0 +1,34 @@
+---
+- hosts: all # Target all hosts in the inventory
+  become: true # Use sudo to run tasks
+  vars:
+    app_dir: "/home/{{ ansible_user }}/app"
+    compose_file: "{{ app_dir }}/docker-compose.yaml"
+
+  tasks:
+    - name: Check if Postgres container is running
+      shell: docker compose -f "{{ compose_file }}" ps -q postgres
+      args:
+        chdir: "{{ app_dir }}"
+      register: postgres_container
+      changed_when: false
+
+    - name: Fail if Postgres container is not running
+      fail:
+        msg: "Postgres container is not running. Cannot clean database."
+      when: postgres_container.stdout == ""
+
+    - name: Clear logs table in PostgreSQL
+      shell: >
+        docker compose -f "{{ compose_file }}" exec -T postgres
+        psql -U {{ postgres_user }}
+        -d {{ postgres_db }}
+        -c 'TRUNCATE TABLE logs RESTART IDENTITY CASCADE;'
+      args:
+        chdir: "{{ app_dir }}"
+      register: truncate_result
+      changed_when: "'TRUNCATE TABLE' in truncate_result.stdout"
+
+    - name: Display cleanup result
+      debug:
+        msg: "PostgreSQL logs table cleared successfully."

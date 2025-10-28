@@ -1,158 +1,80 @@
-# Define stages of the pipeline
+# Define stages for the CI/CD pipeline
 stages:
   - build
-  - test
-  - package
-  - smoketest
-  - scan
-  - deliver
+  - deploy
+  - clean
 
 variables:
-  APP_NAME: exercise2 # Name of the application
-  PORT: 8199 # Port where the app listens
-  DOCKER_IMAGE: $APP_NAME:1.0 # Docker image name
-  HARBOR_IMAGE: harbor.treok.eu/devops_exercise2_ts/$APP_NAME:1.0 # Harbor image path
+  HARBOR_REGISTRY: harbor.treok.eu/devops_exercise3_nctesa # Harbor registry project URL
+  IMAGES_TAG: 1.0 # Tag for Docker images
   DOCKER_HOST: "unix:///runner/services/docker/docker.sock" # Use Docker-in-Docker socket
 
-services:
-  - name: docker:dind
-    alias: docker-host
+before_script:
+  - apk add --no-cache ansible openssh-client # Install Ansible and SSH client
+  - mkdir -p ~/.ssh # Create SSH directory
+  - echo "$SSH_KEY" | base64 -d > ~/.ssh/id_rsa # Decode and save SSH private key
+  - chmod 600 ~/.ssh/id_rsa # Set permissions for SSH key
+  - echo -e "Host *\n\tStrictHostKeyChecking no\n\tUserKnownHostsFile=/dev/null\n" > ~/.ssh/config # Disable host key checking
 
-# 1. Build Stage
 build:
   stage: build
-  image: alpine/java:21-jdk # Use JDK image here for compiling
-  script:
-    - echo "Compiling Java app..."
-    - javac src/Main.java -d build/
-  artifacts:
-    paths:
-      - build/
-    expire_in: 1 hour
-
-# 2. Test Stage
-test:
-  stage: test
-  image: alpine/java:21-jre
-  dependencies:
-    - build
-  before_script:
-    - apk add --no-cache nodejs npm curl # Install Node.js and curl
-    - cd test && npm install && cd .. # Install test dependencies
-  script:
-    - java -cp build Main & # Start the Java server in the background
-    - sleep 5 # Wait for server to start
-    - node test/server.test.js # Run tests
-  artifacts:
-    paths:
-      - test-report.txt
-
-# 3. Package Stage
-package:
-  stage: package
   image: docker:24
-  dependencies:
-    - build
-  script:
-    - echo "Building Docker image..."
-    - docker build -t $DOCKER_IMAGE . # Build Docker image
-    - echo "Saving Docker image as artifact..."
-    - docker save $DOCKER_IMAGE | gzip > $APP_NAME.tar.gz # Gzip and save the image
-  artifacts:
-    paths:
-      - $APP_NAME.tar.gz
-    expire_in: 1 hour
-
-# 4. Smoketest Stage
-smoketest:
-  stage: smoketest
-  image: docker:24
-  dependencies:
-    - package
-  script: |
-    echo "Unpacking and loading Docker image..."
-    gunzip -c $APP_NAME.tar.gz | docker load
-
-    echo "Starting the app container..."
-    docker run -d --name $APP_NAME -p $PORT:$PORT $DOCKER_IMAGE
-
-    echo "Waiting for container to be running..."
-    until [ "$(docker inspect -f '{{.State.Running}}' $APP_NAME)" = "true" ]; do
-      echo "Container not running yet..."
-      sleep 1
-    done
-
-    echo "Container started."
-
-    echo "Waiting for service to respond..."
-    for i in $(seq 1 10); do
-      if docker exec $APP_NAME curl -sf http://localhost:$PORT/health > /dev/null; then
-        echo "App is healthy!"
-        break
-      fi
-      echo "Retrying in 2s..."
-      docker logs --tail 5 $APP_NAME
-      sleep 2
-    done
-
-    echo "Running smoketest..." > smoketest-report.txt
-    RESPONSE=$(docker exec $APP_NAME curl -s -X POST http://localhost:$PORT \
-      -H "Content-Type: application/json" \
-      -d '{"numbers":[1,2,3,4]}')
-    echo "Response: $RESPONSE" >> smoketest-report.txt
-
-    if [ "$RESPONSE" = "2" ]; then
-      echo "Smoketest PASSED" >> smoketest-report.txt
-    else
-      echo "Smoketest FAILED" >> smoketest-report.txt
-      docker logs $APP_NAME
-      exit 1
-    fi
-
-    echo "Stopping and removing app container..."
-    docker stop $APP_NAME
-    docker rm $APP_NAME
-  artifacts:
-    paths:
-      - smoketest-report.txt
-
-# 5. Scan Stage
-scan:
-  stage: scan
-  image: docker:24
-  dependencies:
-    - package
-  before_script:
-    - echo "Installing Trivy..."
-    - apk add --no-cache curl # Install curl
-    - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.67.0 # Install Trivy
-  script:
-    - echo "Unpacking Docker image for scanning..."
-    - gunzip -c $APP_NAME.tar.gz | docker load # Unpack and load the Docker image
-    - echo "Scanning Docker image for vulnerabilities..."
-    - trivy image --exit-code 1 --severity HIGH,CRITICAL --format json -o trivy-report.json $DOCKER_IMAGE # Scan image with Trivy and output JSON report
-  artifacts:
-    paths:
-      - trivy-report.json
-    when: always
-  allow_failure: true # Allow this job to fail without failing the pipeline in case of vulnerabilities
-
-# 6. Deliver Stage
-deliver:
-  stage: deliver
-  image: docker:24
-  dependencies:
-    - package
+  services:
+    - name: docker:dind
+      alias: docker-host
   before_script:
     - echo "Logging in to Harbor..."
-    - docker login harbor.treok.eu -u Teemu -p $HARBOR_PASSWORD # Login to Harbor
+    - docker login harbor.treok.eu -u "$HARBOR_USER" -p "$HARBOR_PASSWORD"
   script:
-    - echo "Unpacking Docker image..."
-    - gunzip -c $APP_NAME.tar.gz | docker load # Unpack and load the Docker image
-    - echo "Tagging and pushing to Harbor..."
-    - docker tag $DOCKER_IMAGE $HARBOR_IMAGE # Tag the image for Harbor
-    - docker push $HARBOR_IMAGE # Push the image to Harbor
+    - echo "Building service1..."
+    - docker build -t service1:$IMAGES_TAG service1
+
+    - echo "Building service2..."
+    - docker build -t service2:$IMAGES_TAG service2
+
+    - echo "Building storage..."
+    - docker build -t storage:$IMAGES_TAG storage
+
+    - echo "Tagging images..."
+    - docker tag service1:$IMAGES_TAG $HARBOR_REGISTRY/service1:$IMAGES_TAG
+    - docker tag service2:$IMAGES_TAG $HARBOR_REGISTRY/service2:$IMAGES_TAG
+    - docker tag storage:$IMAGES_TAG $HARBOR_REGISTRY/storage:$IMAGES_TAG
+
+    - echo "Pushing all images to Harbor..."
+    - docker push $HARBOR_REGISTRY/service1:$IMAGES_TAG
+    - docker push $HARBOR_REGISTRY/service2:$IMAGES_TAG
+    - docker push $HARBOR_REGISTRY/storage:$IMAGES_TAG
   after_script:
-    - docker logout harbor.treok.eu # Logout from Harbor
+    - echo "Cleaning up local Docker images..."
+    - docker system prune -af || true
   rules:
-    - if: '$CI_COMMIT_BRANCH == "deliver"' # Only run on 'deliver' branch
+    - if: '$CI_COMMIT_TAG == "deploy"'
+
+deploy:
+  stage: deploy
+  image: alpine:3.22
+  script:
+    - ssh -i ~/.ssh/id_rsa $DEPLOY_USER@$DEPLOY_HOST "echo Connected successfully" # Test SSH connection
+    - echo "Running Ansible playbook to deploy application on VM..."
+    - |
+      echo "[web]" > inventory.ini
+      echo "$DEPLOY_HOST ansible_user=$DEPLOY_USER" >> inventory.ini
+      ansible-playbook -i inventory.ini ansible/deploy.yaml --extra-vars "harbor_user=$HARBOR_USER harbor_password=$HARBOR_PASSWORD harbor_registry=harbor.treok.eu postgres_user=$POSTGRES_USER postgres_password=$POSTGRES_PASSWORD postgres_db=$POSTGRES_DB postgres_port=$POSTGRES_PORT"
+  after_script:
+    - rm -rf ~/.ssh # Clean up SSH keys
+  rules:
+    - if: '$CI_COMMIT_TAG == "deploy"'
+
+clean:
+  stage: clean
+  image: alpine:3.22
+  script:
+    - echo "Running Ansible playbook to clean PostgreSQL logs..."
+    - |
+      echo "[web]" > inventory.ini
+      echo "$DEPLOY_HOST ansible_user=$DEPLOY_USER" >> inventory.ini
+      ansible-playbook -i inventory.ini ansible/clean.yaml --extra-vars "postgres_user=$POSTGRES_USER postgres_password=$POSTGRES_PASSWORD postgres_db=$POSTGRES_DB postgres_port=$POSTGRES_PORT"
+  after_script:
+    - rm -rf ~/.ssh # Clean up SSH keys
+  rules:
+    - if: '$CI_COMMIT_TAG == "clean"'

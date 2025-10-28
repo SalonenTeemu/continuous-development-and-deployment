@@ -1,0 +1,53 @@
+services:
+  service1:
+    image: harbor.treok.eu/devops_exercise3_nctesa/service1:1.0
+    container_name: service1
+    ports:
+      - "8199:5000"
+    depends_on:
+      - service2
+      - storage
+    networks:
+      - micro_network
+
+  service2:
+    image: harbor.treok.eu/devops_exercise3_nctesa/service2:1.0
+    container_name: service2
+    networks:
+      - micro_network
+
+  storage:
+    image: harbor.treok.eu/devops_exercise3_nctesa/storage:1.0
+    container_name: storage
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT}
+    depends_on:
+      postgres:
+        condition: service_started
+    networks:
+      - micro_network
+
+  postgres:
+    image: postgres:17.6-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    expose:
+      - ${POSTGRES_PORT}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - micro_network
+
+volumes:
+  pg_data:
+
+networks:
+  micro_network:

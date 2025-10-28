@@ -1,0 +1,106 @@
+---
+- hosts: all # Target all hosts in the inventory
+  become: true # Use sudo to run tasks
+  vars:
+    app_dir: "/home/{{ ansible_user }}/app"
+    compose_file: "{{ app_dir }}/docker-compose.yaml"
+    env_file: "{{ app_dir }}/.env"
+    harbor_registry: "harbor.treok.eu"
+
+  tasks:
+    - name: Ensure APT cache is up to date
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install prerequisite packages for Docker
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+
+    - name: Add Docker GPG key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
+        state: present
+
+    - name: Install Docker Engine and Docker Compose plugin
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Ensure app directory exists
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0755" # Owner can read/write/execute, others can read/execute
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Copy docker-compose file
+      copy:
+        src: ../docker-compose.yaml
+        dest: "{{ compose_file }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644" # Other users can read
+
+    - name: Create .env file for Docker Compose
+      copy:
+        dest: "{{ env_file }}"
+        content: |
+          POSTGRES_USER={{ postgres_user }}
+          POSTGRES_PASSWORD={{ postgres_password }}
+          POSTGRES_DB={{ postgres_db }}
+          POSTGRES_PORT={{ postgres_port }}
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600" # Other users have no access
+
+    - name: Log in to Harbor registry
+      become: true
+      shell: |
+        echo "{{ harbor_password }}" | docker login {{ harbor_registry }} -u "{{ harbor_user }}" --password-stdin
+      register: harbor_login
+      changed_when: "'Login Succeeded' in harbor_login.stdout"
+
+    - name: Wait briefly after Harbor login
+      pause:
+        seconds: 2
+
+    - name: Pull latest images from Harbor
+      become: true
+      shell: docker compose -f "{{ compose_file }}" pull
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Start or update the application stack
+      become: true
+      shell: docker compose -f "{{ compose_file }}" up -d
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Show running containers
+      become: true
+      shell: 'docker ps --format "table {{ "{{.Names}}" }}\t{{ "{{.Image}}" }}\t{{ "{{.Status}}" }}"'
+      register: ps_output
+      changed_when: false
+
+    - name: Display running containers summary
+      debug:
+        msg: |
+          Deployment complete. Running containers:
+          {{ ps_output.stdout }}

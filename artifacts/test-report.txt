@@ -1,6 +1,0 @@
-POST test result: 4, Expected: 4
-POST test PASSED
-GET request status code: 405, Expected: 405
-GET test PASSED
-Health check status code: 200, Expected: 200
-Health check test PASSED
