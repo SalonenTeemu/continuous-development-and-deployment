@@ -8,14 +8,15 @@ Motivation/reason to use LLM
 - For example, to quickly generate a base version of the pipeline.
 
 How and why LLM helped
-- Assisted in writing the Ansible playbooks, as I had minimal prior experience with them.
-- Helped debug errors faced in the GitLab CI/CD pipeline and the playbooks.
-- Assisted in improving the wording of the report.
+- Quickly produced the basic monitoring service HTML, CSS, and JavaScript code.
+- Provided guidance with NGINX configurations, as I was not too familiar with it from prior experience.
+- Helped solve many technical issues described in the report.
 
 What kind of mistakes LLM did
-- Occasionally hallucinated, suggesting implementations unrelated to the exercise.
+- Occasionally hallucinated, suggesting implementations unrelated to the project.
+- Sometimes provided technically invalid or overly generic answers.
 
 What were things that LLM was not able to provide
-- Did not fully understand the whole exercise context when I asked for help with specific issues, which sometimes led to incorrect or irrelevant answers.
+- Did not fully understand the whole project context when I asked for help with specific issues, which sometimes led to incorrect or irrelevant answers in the larger context.
 
 I allow course staff to use this report in grading and use of it (after anonymization) for teaching development and research purposes.

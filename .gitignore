@@ -3,3 +3,6 @@ dist/
 .env
 .vscode/
 .DS_Store
+nginx/certs/
+__pycache__/
+.pytest_cache/

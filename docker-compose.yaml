@@ -1,25 +1,34 @@
 services:
-  service1:
-    image: harbor.treok.eu/devops_exercise3_nctesa/service1:1.0
-    container_name: service1
-    ports:
-      - "8199:5000"
+  service1_v1_0:
+    image: harbor.treok.eu/devops_project_nctesa/service1:${SERVICE1_TAG}
+    build: ./service1
+    container_name: service1${SERVICE_NAME_SUFFIX}
+    restart: "on-failure:5"
+    expose:
+      - "5000"
     depends_on:
-      - service2
+      - service2_v1_0
       - storage
     networks:
       - micro_network
 
-  service2:
-    image: harbor.treok.eu/devops_exercise3_nctesa/service2:1.0
-    container_name: service2
+  service2_v1_0:
+    image: harbor.treok.eu/devops_project_nctesa/service2:${SERVICE2_TAG}
+    build: ./service2
+    container_name: service2${SERVICE_NAME_SUFFIX}
+    restart: "on-failure:5"
+    expose:
+      - "5001"
     networks:
       - micro_network
 
   storage:
-    image: harbor.treok.eu/devops_exercise3_nctesa/storage:1.0
+    image: harbor.treok.eu/devops_project_nctesa/storage:${STORAGE_TAG}
+    build: ./storage
     container_name: storage
-    restart: always
+    restart: "always"
+    expose:
+      - "6000"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -32,9 +41,30 @@ services:
     networks:
       - micro_network
 
+  monitor_v1_0:
+    image: harbor.treok.eu/devops_project_nctesa/monitor:${MONITOR_TAG}
+    build: ./monitor
+    container_name: monitor${SERVICE_NAME_SUFFIX}
+    restart: "on-failure:5"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - PROJECT_USERNAME=${PROJECT_USERNAME}
+      - PROJECT_PASSWORD=${PROJECT_PASSWORD}
+    expose:
+      - "8198"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - service1_v1_0
+      - service2_v1_0
+      - storage
+    networks:
+      - micro_network
+
   postgres:
     image: postgres:17.6-alpine
     container_name: postgres
+    restart: "on-failure:5"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -43,6 +73,21 @@ services:
       - ${POSTGRES_PORT}
     volumes:
       - pg_data:/var/lib/postgresql/data
+    networks:
+      - micro_network
+
+  api-gateway:
+    image: harbor.treok.eu/devops_project_nctesa/api-gateway:${GATEWAY_TAG}
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "8198:8198"
+      - "8199:8199"
+    volumes:
+      - ./api-gateway/nginx/certs:/etc/nginx/certs:ro
+      - ./api-gateway/nginx/api_state:/etc/nginx/api_state
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
     networks:
       - micro_network
 

@@ -10,6 +10,7 @@ RUN npm install
 # Copy app code
 COPY index.js .
 COPY helpers.js .
+COPY public ./public
 
 # Run the application
 CMD ["node", "index.js"]

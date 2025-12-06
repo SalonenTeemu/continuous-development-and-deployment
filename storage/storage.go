@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,7 +12,7 @@ import (
 )
 
 var (
-	port    = getEnv("PORT", "6000")
+	port    = "6000"
 	dbUser  = getEnv("POSTGRES_USER", "user")
 	dbPass  = getEnv("POSTGRES_PASSWORD", "pass")
 	dbHost  = getEnv("POSTGRES_HOST", "postgres")
@@ -41,60 +42,80 @@ func initDB() error {
 	}
 	// Create table if it doesn't exist
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS logs (
-		id SERIAL PRIMARY KEY,
-		record TEXT NOT NULL
+    id SERIAL PRIMARY KEY,
+    service TEXT NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL,
+    uptime_seconds BIGINT NOT NULL,
+    free_mb INT NOT NULL
 	)`)
 	return err
 }
 
-// Function to append a log record to the database
-func appendLog(record string) error {
-	_, err := db.Exec("INSERT INTO logs (record) VALUES ($1)", record)
+// LogEntry presents a log record
+type LogEntry struct {
+	Service       string `json:"service"`
+	Timestamp     string `json:"timestamp"`
+	UptimeSeconds int    `json:"uptime_seconds"`
+	FreeMB        int    `json:"free_mb"`
+}
+
+// Function to append a log entry to the database
+func appendLog(entry LogEntry) error {
+	_, err := db.Exec(`
+        INSERT INTO logs (service, timestamp, uptime_seconds, free_mb)
+        VALUES ($1, $2, $3, $4)
+    `, entry.Service, entry.Timestamp, entry.UptimeSeconds, entry.FreeMB)
 	return err
 }
 
 // Function to retrieve all log records from the database
-func getAllLogs() (string, error) {
+func getAllLogs() ([]LogEntry, error) {
 	// Query all records ordered by ID
-	rows, err := db.Query("SELECT record FROM logs ORDER BY id ASC")
+	rows, err := db.Query(`
+        SELECT service, timestamp, uptime_seconds, free_mb
+        FROM logs ORDER BY id ASC
+    `)
+
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var result string
-	// Iterate through the rows and concatenate records
+	var entries []LogEntry
+
+	// Iterate through the rows and scan into LogEntry structs
 	for rows.Next() {
-		var record string
-		if err := rows.Scan(&record); err != nil {
-			return "", err
+		var e LogEntry
+		if err := rows.Scan(&e.Service, &e.Timestamp, &e.UptimeSeconds, &e.FreeMB); err != nil {
+			return nil, err
 		}
-		result += record + "\n"
+		entries = append(entries, e)
 	}
-	return result, nil
+
+	// Return the slice of log entries
+	return entries, nil
 }
 
 // POST /log
 func postLog(w http.ResponseWriter, r *http.Request) {
 	// Read the request body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "failed to read body", http.StatusBadRequest)
-		return
-	}
+	body, _ := io.ReadAll(r.Body)
 	// Ensure the body is closed after reading
 	defer r.Body.Close()
 
-	record := string(body)
-	if record == "" {
-		http.Error(w, "empty log", http.StatusBadRequest)
+	var entry LogEntry
+	// Parse JSON body into LogEntry struct
+	if err := json.Unmarshal(body, &entry); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
 
-	if err := appendLog(record); err != nil {
-		http.Error(w, "failed to append log", http.StatusInternalServerError)
+	// Append the log entry to the database and handle errors
+	if err := appendLog(entry); err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
 		return
 	}
+
 	// Respond with success
 	w.WriteHeader(http.StatusOK)
 }
@@ -102,14 +123,31 @@ func postLog(w http.ResponseWriter, r *http.Request) {
 // GET /log
 func getLog(w http.ResponseWriter, _ *http.Request) {
 	// Retrieve all logs from the database
-	data, err := getAllLogs()
+	entries, err := getAllLogs()
 	if err != nil {
 		http.Error(w, "failed to read logs", http.StatusInternalServerError)
 		return
 	}
-	// Respond with the log content
-	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(data))
+
+	// Respond with the log entries as JSON
+	w.Header().Set("Content-Type", "application/json")
+
+	// Encode entries to JSON and write to response
+	json.NewEncoder(w).Encode(entries)
+}
+
+// DELETE /log
+func deleteLog(w http.ResponseWriter, _ *http.Request) {
+	// Clear all logs from the logs table
+	_, err := db.Exec("TRUNCATE TABLE logs")
+	if err != nil {
+		http.Error(w, "failed to clear logs", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with success
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("logs cleared"))
 }
 
 // Main function to initialize the database and start the HTTP server
@@ -127,6 +165,8 @@ func main() {
 			postLog(w, r)
 		case http.MethodGet:
 			getLog(w, r)
+		case http.MethodDelete:
+			deleteLog(w, r)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
