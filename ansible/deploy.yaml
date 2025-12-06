@@ -1,0 +1,209 @@
+---
+- hosts: all # Target all hosts in the inventory
+  become: true # Use sudo to execute tasks
+  vars:
+    app_dir: "/home/{{ ansible_user }}/app"
+    compose_file: "{{ app_dir }}/docker-compose.yaml"
+    env_file: "{{ app_dir }}/.env"
+    # These will be overridden by CI/CD pipeline variables
+    harbor_registry: "harbor.treok.eu"
+    service_suffix: "_v1_0"
+    service1_tag: "1.0"
+    service2_tag: "1.0"
+    storage_tag: "1.0"
+    monitor_tag: "1.0"
+    gateway_tag: "1.0"
+    jwt_secret: ""
+    project_username: ""
+    project_password: ""
+    postgres_user: ""
+    postgres_password: ""
+    postgres_db: ""
+    postgres_port: ""
+
+  tasks:
+    - name: Ensure APT cache is up to date
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install prerequisite packages for Docker
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+
+    - name: Add Docker GPG key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
+        state: present
+
+    - name: Install Docker Engine and Docker Compose plugin
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+      register: docker_install
+      check_mode: no
+      changed_when: docker_install is changed
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Check if Docker Compose is available
+      command: docker compose version
+      register: docker_compose_check
+      ignore_errors: yes
+
+    - name: Debug Docker Compose check
+      debug:
+        msg: "Docker Compose already installed, skipping installation."
+      when: docker_compose_check.rc == 0
+
+    - name: Ensure app directory exists
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0755" # Owner can read/write/execute, others can read/execute
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Copy docker-compose file
+      copy:
+        src: ../docker-compose.yaml
+        dest: "{{ compose_file }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644" # Owner can read/write, others can read
+
+    - name: Create .env file for Docker Compose
+      copy:
+        dest: "{{ env_file }}"
+        content: |
+          POSTGRES_USER={{ postgres_user }}
+          POSTGRES_PASSWORD={{ postgres_password }}
+          POSTGRES_DB={{ postgres_db }}
+          POSTGRES_PORT={{ postgres_port }}
+          JWT_SECRET={{ jwt_secret }}
+          PROJECT_USERNAME={{ project_username }}
+          PROJECT_PASSWORD={{ project_password }}
+          SERVICE_NAME_SUFFIX={{ service_suffix }}
+          SERVICE1_TAG={{ service1_tag }}
+          SERVICE2_TAG={{ service2_tag }}
+          STORAGE_TAG={{ storage_tag }}
+          MONITOR_TAG={{ monitor_tag }}
+          GATEWAY_TAG={{ gateway_tag }}
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600" # Owner can read/write, others have no permissions
+
+    - name: Ensure nginx directory structure exists
+      file:
+        path: "{{ app_dir }}/api-gateway/nginx/{{ item }}"
+        state: directory
+        mode: "0755" # Owner can read/write/execute, others can read/execute
+        owner: root
+        group: root
+      loop:
+        - certs
+        - api_state
+
+    - name: Create api_state files if missing
+      copy:
+        dest: "{{ app_dir }}/api-gateway/nginx/api_state/{{ item.name }}"
+        content: "{{ item.content }}"
+        owner: root
+        group: root
+        mode: "0666" # Everyone can read/write
+        force: no # Only create if missing
+      loop:
+        - { name: "live", content: "" }
+        - { name: "available", content: "" }
+
+    - name: Check if live stack file is empty
+      stat:
+        path: "{{ app_dir }}/api-gateway/nginx/api_state/live"
+      register: live_file
+
+    - name: Initialize live stack only if empty and deploying version 1.0
+      lineinfile:
+        path: "{{ app_dir }}/api-gateway/nginx/api_state/live"
+        line: "_v1_0"
+        state: present
+        create: yes
+        owner: root
+        group: root
+        mode: "0666" # Everyone can read/write
+      when:
+        - service_suffix == "_v1_0"
+        - live_file.stat.exists
+        - live_file.stat.size == 0
+
+    - name: Read available stacks file
+      slurp:
+        src: "{{ app_dir }}/api-gateway/nginx/api_state/available"
+      register: available_file_raw
+
+    - name: Convert available file to string
+      set_fact:
+        available_stacks: "{{ available_file_raw['content'] | b64decode | trim }}"
+
+    - name: Add service suffix to available stacks (comma-separated)
+      set_fact:
+        updated_available_stacks: "{{ (available_stacks.split(',') + [service_suffix]) | unique | reject('equalto','') | join(',') }}"
+
+    - name: Update available stacks file
+      copy:
+        dest: "{{ app_dir }}/api-gateway/nginx/api_state/available"
+        content: "{{ updated_available_stacks }}"
+        owner: root
+        group: root
+        mode: "0666" # Everyone can read/write
+
+    - name: Log in to Harbor registry
+      become: true
+      shell: |
+        echo "{{ harbor_password }}" | docker login {{ harbor_registry }} -u "{{ harbor_user }}" --password-stdin
+      register: harbor_login
+      changed_when: "'Login Succeeded' in harbor_login.stdout"
+
+    - name: Wait briefly after Harbor login
+      pause:
+        seconds: 2
+
+    - name: Pull latest images from Harbor
+      become: true
+      shell: docker compose -f "{{ compose_file }}" pull
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Start or update the application stack
+      shell: docker compose -f "{{ compose_file }}" up -d --no-recreate
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Show running containers
+      shell: 'docker ps --format "table {{ "{{.Names}}" }}\t{{ "{{.Image}}" }}\t{{ "{{.Status}}" }}"'
+      register: ps_output
+      changed_when: false
+
+    - name: Display running containers summary
+      debug:
+        msg: |
+          Deployment complete. Running containers:
+          {{ ps_output.stdout }}

@@ -1,0 +1,22 @@
+LLM tools were used when doing this exercise.
+
+The used LLM tool
+- OpenAI ChatGPT
+
+Motivation/reason to use LLM
+- To speed up setup, troubleshoot issues, and improve documentation.
+- For example, to quickly generate a base version of the pipeline.
+
+How and why LLM helped
+- Quickly produced the basic monitoring service HTML, CSS, and JavaScript code.
+- Provided guidance with NGINX configurations, as I was not too familiar with it from prior experience.
+- Helped solve many technical issues described in the report.
+
+What kind of mistakes LLM did
+- Occasionally hallucinated, suggesting implementations unrelated to the project.
+- Sometimes provided technically invalid or overly generic answers.
+
+What were things that LLM was not able to provide
+- Did not fully understand the whole project context when I asked for help with specific issues, which sometimes led to incorrect or irrelevant answers in the larger context.
+
+I allow course staff to use this report in grading and use of it (after anonymization) for teaching development and research purposes.

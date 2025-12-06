@@ -1,0 +1,38 @@
+body {
+  font-family: sans-serif;
+  background: #111;
+  color: #eee;
+  padding: 20px;
+}
+button {
+  margin: 5px;
+  padding: 10px 20px;
+  border-radius: 5px;
+  border: none;
+  background: #333;
+  color: #eee;
+  cursor: pointer;
+}
+button:hover {
+  background: #555;
+}
+pre {
+  background: #222;
+  padding: 10px;
+  border-radius: 5px;
+  max-height: 300px;
+  overflow-y: scroll;
+}
+.section {
+  margin-bottom: 20px;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+th,
+td {
+  border: 1px solid #444;
+  padding: 8px;
+  text-align: left;
+}

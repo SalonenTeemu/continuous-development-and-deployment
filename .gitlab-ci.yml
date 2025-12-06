@@ -1,0 +1,161 @@
+# Define stages of the pipeline
+stages:
+  - build
+  - test
+  - package
+  - smoketest
+  - deploy
+
+variables:
+  DOCKER_HOST: "unix:///runner/services/docker/docker.sock" # Use Docker-in-Docker socket
+  HARBOR_REGISTRY: harbor.treok.eu/devops_project_nctesa # Harbor registry project URL
+  SERVICE_NAME_SUFFIX: "_v1_1" # Suffix for service container names
+  # Image tags for each service
+  SERVICE1_TAG: 1.1
+  SERVICE2_TAG: 1.1
+  STORAGE_TAG: 1.0
+  MONITOR_TAG: 1.1
+  GATEWAY_TAG: 1.0
+
+# Define Docker-in-Docker service
+services:
+  - name: docker:24-dind
+    alias: docker-host
+
+# Build stage
+build:
+  stage: build
+  image: golang:1.25-alpine
+  before_script:
+    - apk add --no-cache python3 py3-pip python3-dev gcc musl-dev linux-headers bash git nodejs npm
+  script: # Build the project and its dependencies using the build script
+    - chmod +x scripts/build.sh
+    - ./scripts/build.sh
+  artifacts:
+    paths: # Save the builds as artifacts for later stages
+      - service1/build_deps/
+      - service2/node_modules/
+      - monitor/node_modules/
+      - storage/storage
+    expire_in: 1 hour
+
+# Test stage
+test:
+  stage: test
+  image: golang:1.25-alpine
+  dependencies:
+    - build
+  before_script:
+    - apk add --no-cache python3 py3-pip nodejs npm bash git
+  script: # Run simple tests using the test script
+    - chmod +x scripts/test.sh
+    - ./scripts/test.sh
+
+# Package stage
+package:
+  stage: package
+  image: docker:24
+  before_script:
+    - echo "Logging in to Harbor..."
+    - docker login harbor.treok.eu -u "$HARBOR_USER" -p "$HARBOR_PASSWORD"
+  script:
+    - echo "Building service1..."
+    - docker build -t service1:$SERVICE1_TAG service1
+
+    - echo "Building service2..."
+    - docker build -t service2:$SERVICE2_TAG service2
+
+    - echo "Building storage..."
+    - docker build -t storage:$STORAGE_TAG storage
+
+    - echo "Building monitor..."
+    - docker build -t monitor:$MONITOR_TAG monitor
+
+    - echo "Building api-gateway..."
+    - docker build -t api-gateway:$GATEWAY_TAG api-gateway
+
+    - echo "Tagging images..."
+    - docker tag service1:$SERVICE1_TAG $HARBOR_REGISTRY/service1:$SERVICE1_TAG
+    - docker tag service2:$SERVICE2_TAG $HARBOR_REGISTRY/service2:$SERVICE2_TAG
+    - docker tag storage:$STORAGE_TAG $HARBOR_REGISTRY/storage:$STORAGE_TAG
+    - docker tag monitor:$MONITOR_TAG $HARBOR_REGISTRY/monitor:$MONITOR_TAG
+    - docker tag api-gateway:$GATEWAY_TAG $HARBOR_REGISTRY/api-gateway:$GATEWAY_TAG
+
+    - echo "Pushing images to Harbor..."
+    - docker push $HARBOR_REGISTRY/service1:$SERVICE1_TAG
+    - docker push $HARBOR_REGISTRY/service2:$SERVICE2_TAG
+    - docker push $HARBOR_REGISTRY/storage:$STORAGE_TAG
+    - docker push $HARBOR_REGISTRY/monitor:$MONITOR_TAG
+    - docker push $HARBOR_REGISTRY/api-gateway:$GATEWAY_TAG
+  after_script:
+    - echo "Removing created project images only..."
+    - chmod +x scripts/cleanup_images.sh
+    - ./scripts/cleanup_images.sh
+    - echo "Package stage cleanup complete"
+
+# Smoketest stage
+smoketest:
+  stage: smoketest
+  image: docker:24
+  before_script: # Log in to Harbor registry before pulling images
+    - echo "Logging in to Harbor..."
+    - docker login harbor.treok.eu -u "$HARBOR_USER" -p "$HARBOR_PASSWORD"
+  script: |
+    echo "Pulling all images..."
+    docker compose -f docker-compose.yaml pull
+
+    echo "Starting containers..."
+    docker compose -f docker-compose.yaml up -d
+
+    echo "Waiting for all app containers to be running..."
+    for svc in postgres storage "service1$SERVICE_NAME_SUFFIX" "service2$SERVICE_NAME_SUFFIX" "monitor$SERVICE_NAME_SUFFIX" api-gateway; do
+      echo "Checking $svc..."
+      timeout=30
+      while [ $timeout -gt 0 ]; do
+        state=$(docker inspect -f '{{.State.Running}}' $svc 2>/dev/null || echo "false")
+        if [ "$state" = "true" ]; then
+          echo "$svc is running"
+          break
+        fi
+        echo "$svc not running yet..."
+        sleep 2
+        timeout=$((timeout-2))
+      done
+
+      if [ "$state" != "true" ]; then
+        echo "$svc failed to start!"
+        docker logs $svc
+        exit 1
+      fi
+    done
+
+    echo "All containers are running. Smoketest PASSED."
+  after_script: # Clean up: stop and remove containers, remove images
+    - echo "Stopping and removing containers..."
+    - docker compose -f docker-compose.yaml down -v || true
+
+      # Remove only the project images using the cleanup script
+    - echo "Removing project images only..."
+    - chmod +x scripts/cleanup_images.sh
+    - ./scripts/cleanup_images.sh
+    - echo "Smoketest cleanup complete"
+
+# Deploy stage
+deploy:
+  stage: deploy
+  image: alpine:3.22
+  before_script:
+    - apk add --no-cache ansible openssh-client # Install Ansible and SSH client
+    - mkdir -p ~/.ssh # Create SSH directory
+    - echo "$SSH_KEY" | base64 -d > ~/.ssh/id_rsa # Decode and save SSH private key
+    - chmod 600 ~/.ssh/id_rsa # Set permissions for SSH key
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\tUserKnownHostsFile=/dev/null\n" > ~/.ssh/config # Disable host key checking
+  script: # Connect to the deployment VM and run Ansible playbook with necessary environment variables
+    - ssh -i ~/.ssh/id_rsa $DEPLOY_USER@$DEPLOY_HOST_PROJECT "echo Connected successfully"
+    - |
+      echo "[web]" > inventory.ini
+      echo "$DEPLOY_HOST_PROJECT ansible_user=$DEPLOY_USER" >> inventory.ini
+      echo "Running Ansible playbook to deploy application on VM..."
+      ansible-playbook -i inventory.ini ansible/deploy.yaml --extra-vars "harbor_user=$HARBOR_USER harbor_password=$HARBOR_PASSWORD harbor_registry=harbor.treok.eu postgres_user=$POSTGRES_USER postgres_password=$POSTGRES_PASSWORD postgres_db=$POSTGRES_DB postgres_port=$POSTGRES_PORT service1_tag=$SERVICE1_TAG service2_tag=$SERVICE2_TAG storage_tag=$STORAGE_TAG monitor_tag=$MONITOR_TAG gateway_tag=$GATEWAY_TAG service_suffix=$SERVICE_NAME_SUFFIX jwt_secret=$JWT_SECRET project_username=$PROJECT_USERNAME project_password=$PROJECT_PASSWORD"
+  after_script:
+    - rm -rf ~/.ssh # Clean up SSH keys
